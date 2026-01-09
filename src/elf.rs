@@ -218,15 +218,15 @@ impl BpfRelocationType {
 pub enum Section {
     /// Owned section data.
     ///
-    /// The first field is virtual address of the section.
+    /// The first field is virtual address of the section (must be u64 for 32-bit host support).
     /// The second field is the actual section data.
-    Owned(usize, Vec<u8>),
+    Owned(u64, Vec<u8>),
     /// Borrowed section data.
     ///
-    /// The first field is virtual address of the section.
+    /// The first field is virtual address of the section (must be u64 for 32-bit host support).
     /// The second field can be used to index the input ELF buffer to
     /// retrieve the section data.
-    Borrowed(usize, Range<usize>),
+    Borrowed(u64, Range<usize>),
 }
 
 /// Elf loader/relocator
@@ -356,7 +356,7 @@ impl<C: ContextObject> Executable<C> {
         Ok(Self {
             elf_bytes,
             sbpf_version,
-            ro_section: Section::Borrowed(ebpf::MM_RODATA_START as usize, 0..text_bytes.len()),
+            ro_section: Section::Borrowed(ebpf::MM_RODATA_START, 0..text_bytes.len()),
             text_section_vaddr: if sbpf_version.enable_lower_bytecode_vaddr() {
                 ebpf::MM_BYTECODE_START
             } else {
@@ -491,7 +491,7 @@ impl<C: ContextObject> Executable<C> {
         let text_section_vaddr = bytecode_header.p_vaddr;
         let text_section_range = bytecode_header.file_range().unwrap_or_default();
         let ro_section = Section::Borrowed(
-            rodata_header.p_vaddr as usize,
+            rodata_header.p_vaddr,
             rodata_header.file_range().unwrap_or_default(),
         );
 
@@ -815,12 +815,12 @@ impl<C: ContextObject> Executable<C> {
         sections: S,
         elf_bytes: &[u8],
     ) -> Result<Section, ElfError> {
-        // the lowest section address
-        let mut lowest_addr = usize::MAX;
-        // the highest section address
-        let mut highest_addr = 0;
+        // the lowest section address (VM address, must be u64 to support addresses >= 4GB)
+        let mut lowest_addr: u64 = u64::MAX;
+        // the highest section address (VM address, must be u64 to support addresses >= 4GB)
+        let mut highest_addr: u64 = 0;
         // the aggregated section length, not including gaps between sections
-        let mut ro_fill_length = 0usize;
+        let mut ro_fill_length = 0u64;
         let mut invalid_offsets = false;
         // when sbpf_version.enable_elf_vaddr()=true, we allow section_addr != sh_offset
         // if section_addr - sh_offset is constant across all sections. That is,
@@ -833,7 +833,7 @@ impl<C: ContextObject> Executable<C> {
         let mut last_ro_section = 0;
         let mut n_ro_sections = 0usize;
 
-        let mut ro_slices = vec![];
+        let mut ro_slices: Vec<(u64, &[u8])> = vec![];
         for (i, (name, section_header)) in sections.into_iter().enumerate() {
             match name {
                 Some(name)
@@ -900,10 +900,9 @@ impl<C: ContextObject> Executable<C> {
                 .get(section_header.file_range().unwrap_or_default())
                 .ok_or(ElfError::ValueOutOfBounds)?;
 
-            let section_addr = section_addr as usize;
             lowest_addr = lowest_addr.min(section_addr);
-            highest_addr = highest_addr.max(section_addr.saturating_add(section_data.len()));
-            ro_fill_length = ro_fill_length.saturating_add(section_data.len());
+            highest_addr = highest_addr.max(section_addr.saturating_add(section_data.len() as u64));
+            ro_fill_length = ro_fill_length.saturating_add(section_data.len() as u64);
 
             ro_slices.push((section_addr, section_data));
         }
@@ -927,12 +926,13 @@ impl<C: ContextObject> Executable<C> {
             // When sbpf_version.enable_elf_vaddr()=true, section addresses and their
             // corresponding buffer offsets can be translated by a constant
             // amount. Subtract the constant to get buffer positions.
+            // Buffer offsets are usize since they index into byte slices.
             let buf_offset_start =
-                lowest_addr.saturating_sub(addr_file_offset.unwrap_or(0) as usize);
+                lowest_addr.saturating_sub(addr_file_offset.unwrap_or(0)) as usize;
             let buf_offset_end =
-                highest_addr.saturating_sub(addr_file_offset.unwrap_or(0) as usize);
+                highest_addr.saturating_sub(addr_file_offset.unwrap_or(0)) as usize;
 
-            let addr_offset = if lowest_addr >= ebpf::MM_RODATA_START as usize {
+            let addr_offset = if lowest_addr >= ebpf::MM_RODATA_START {
                 // The first field of Section::Borrowed is an offset from
                 // ebpf::MM_RODATA_START so if the linker has already put the
                 // sections within ebpf::MM_RODATA_START, we need to subtract
@@ -942,7 +942,7 @@ impl<C: ContextObject> Executable<C> {
                 if sbpf_version.enable_elf_vaddr() {
                     return Err(ElfError::ValueOutOfBounds);
                 }
-                lowest_addr.saturating_add(ebpf::MM_RODATA_START as usize)
+                lowest_addr.saturating_add(ebpf::MM_RODATA_START)
             };
 
             Section::Borrowed(addr_offset, buf_offset_start..buf_offset_end)
@@ -963,22 +963,24 @@ impl<C: ContextObject> Executable<C> {
                 lowest_addr = 0;
             };
 
-            let buf_len = highest_addr;
+            // Buffer length is usize since it's used for Vec allocation
+            let buf_len = highest_addr as usize;
             if buf_len > elf_bytes.len() {
                 return Err(ElfError::ValueOutOfBounds);
             }
 
             let mut ro_section = vec![0; buf_len];
             for (section_addr, slice) in ro_slices.iter() {
-                let buf_offset_start = section_addr.saturating_sub(lowest_addr);
+                // Buffer offset computed from VM addresses, then converted to usize for indexing
+                let buf_offset_start = section_addr.saturating_sub(lowest_addr) as usize;
                 ro_section[buf_offset_start..buf_offset_start.saturating_add(slice.len())]
                     .copy_from_slice(slice);
             }
 
-            let addr_offset = if lowest_addr >= ebpf::MM_RODATA_START as usize {
+            let addr_offset = if lowest_addr >= ebpf::MM_RODATA_START {
                 lowest_addr
             } else {
-                lowest_addr.saturating_add(ebpf::MM_RODATA_START as usize)
+                lowest_addr.saturating_add(ebpf::MM_RODATA_START)
             };
             Section::Owned(addr_offset, ro_section)
         };
@@ -1347,13 +1349,13 @@ impl<C: ContextObject> Executable<C> {
 
 /// Creates a [MemoryRegion] for the given [Section]
 pub fn get_ro_region(ro_section: &Section, elf: &[u8]) -> MemoryRegion {
-    let (offset, ro_data) = match ro_section {
-        Section::Owned(offset, data) => (*offset, data.as_slice()),
-        Section::Borrowed(offset, byte_range) => (*offset, &elf[byte_range.clone()]),
+    let (vm_addr, ro_data) = match ro_section {
+        Section::Owned(vm_addr, data) => (*vm_addr, data.as_slice()),
+        Section::Borrowed(vm_addr, byte_range) => (*vm_addr, &elf[byte_range.clone()]),
     };
 
-    // If offset > 0, the region will start at MM_RODATA_START + the offset of
-    // the first read only byte. [MM_RODATA_START, MM_RODATA_START + offset)
-    // will be unmappable, see MemoryRegion::vm_to_host.
-    MemoryRegion::new_readonly(ro_data, offset as u64)
+    // The vm_addr is the virtual address where the read-only section is mapped.
+    // If vm_addr > MM_RODATA_START, the region [MM_RODATA_START, vm_addr) will be
+    // unmappable, see MemoryRegion::vm_to_host.
+    MemoryRegion::new_readonly(ro_data, vm_addr)
 }

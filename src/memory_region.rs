@@ -821,12 +821,12 @@ mod test {
 
         assert_eq!(
             m.map(AccessType::Load, ebpf::MM_INPUT_START, 1).unwrap(),
-            mem1.as_ptr() as usize
+            mem1.as_ptr() as u64
         );
 
         assert_eq!(
             m.map(AccessType::Store, ebpf::MM_INPUT_START, 1).unwrap(),
-            mem1.as_ptr() as usize
+            mem1.as_ptr() as u64
         );
 
         assert_error!(
@@ -841,7 +841,7 @@ mod test {
                 1,
             )
             .unwrap(),
-            mem2.as_ptr() as usize
+            mem2.as_ptr() as u64
         );
 
         assert_eq!(
@@ -851,7 +851,7 @@ mod test {
                 1,
             )
             .unwrap(),
-            mem3.as_ptr() as usize
+            mem3.as_ptr() as u64
         );
 
         assert_eq!(
@@ -861,7 +861,7 @@ mod test {
                 1,
             )
             .unwrap(),
-            mem4.as_ptr() as usize
+            mem4.as_ptr() as u64
         );
 
         assert_error!(
@@ -1117,7 +1117,7 @@ mod test {
 
         assert_eq!(
             m.map(AccessType::Load, ebpf::MM_INPUT_START, 1).unwrap(),
-            mem1.as_ptr() as usize
+            mem1.as_ptr() as u64
         );
 
         assert_eq!(
@@ -1127,7 +1127,7 @@ mod test {
                 1,
             )
             .unwrap(),
-            mem2.as_ptr() as usize
+            mem2.as_ptr() as u64
         );
 
         assert_error!(
@@ -1167,7 +1167,7 @@ mod test {
                 1,
             )
             .unwrap(),
-            mem3.as_ptr() as usize
+            mem3.as_ptr() as u64
         );
     }
 
@@ -1192,7 +1192,7 @@ mod test {
 
         assert_eq!(
             m.map(AccessType::Load, ebpf::MM_STACK_START, 1).unwrap(),
-            mem2.as_ptr() as usize
+            mem2.as_ptr() as u64
         );
 
         // index > regions.len()
@@ -1221,7 +1221,7 @@ mod test {
 
         assert_eq!(
             m.map(AccessType::Load, ebpf::MM_STACK_START, 1).unwrap(),
-            mem3.as_ptr() as usize
+            mem3.as_ptr() as u64
         );
     }
 
@@ -1253,12 +1253,12 @@ mod test {
             assert_eq!(
                 m.map_with_access_violation_handler(AccessType::Load, ebpf::MM_RODATA_START, 1)
                     .unwrap(),
-                original.as_ptr() as usize
+                original.as_ptr() as u64
             );
             assert_eq!(
                 m.map_with_access_violation_handler(AccessType::Store, ebpf::MM_RODATA_START, 1)
                     .unwrap(),
-                copied.borrow().as_ptr() as usize
+                copied.borrow().as_ptr() as u64
             );
         }
     }
@@ -1290,7 +1290,7 @@ mod test {
 
             assert_eq!(
                 m.map(AccessType::Load, ebpf::MM_RODATA_START, 1).unwrap(),
-                original.as_ptr() as usize
+                original.as_ptr() as u64
             );
 
             assert_eq!(m.load::<u8>(ebpf::MM_RODATA_START).unwrap(), 11);
