@@ -300,6 +300,12 @@ impl<C: ContextObject> BuiltinProgram<C> {
             .register_function(key, name, value)
             .map(|_| ())
     }
+
+    /// Unregister a function by name to allow re-registration with different implementation
+    pub fn unregister_function_by_name(&mut self, name: &str) {
+        let key = ebpf::hash_symbol_name(name.as_bytes());
+        self.sparse_registry.unregister_function(key);
+    }
 }
 
 impl<C: ContextObject> std::fmt::Debug for BuiltinProgram<C> {
