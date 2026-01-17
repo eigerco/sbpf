@@ -44,7 +44,7 @@ pub fn default_access_violation_handler(
 #[repr(C, align(32))]
 pub struct MemoryRegion {
     /// start host address
-    pub host_addr: u64,
+    pub host_addr: usize,
     /// start virtual address
     pub vm_addr: u64,
     /// Length in bytes
@@ -67,7 +67,7 @@ impl MemoryRegion {
             debug_assert_eq!(Some(vm_gap_size), 1_u64.checked_shl(vm_gap_shift as u32));
         };
         MemoryRegion {
-            host_addr: slice.as_ptr() as u64,
+            host_addr: slice.as_ptr() as usize,
             vm_addr,
             len: slice.len() as u64,
             vm_gap_shift,
@@ -106,7 +106,7 @@ impl MemoryRegion {
     }
 
     /// Convert a virtual machine address into a host address
-    pub fn vm_to_host(&self, access_type: AccessType, vm_addr: u64, len: u64) -> Option<u64> {
+    pub fn vm_to_host(&self, access_type: AccessType, vm_addr: u64, len: u64) -> Option<usize> {
         if access_type == AccessType::Store && !self.writable {
             return None;
         }
@@ -129,7 +129,7 @@ impl MemoryRegion {
             (begin_offset & gap_mask).checked_shr(1).unwrap_or(0) | (begin_offset & !gap_mask);
         if let Some(end_offset) = gapped_offset.checked_add(len) {
             if end_offset <= self.len && !is_in_gap {
-                return Some(self.host_addr.saturating_add(gapped_offset));
+                return Some(self.host_addr.saturating_add(gapped_offset as usize));
             }
         }
         None
@@ -142,7 +142,7 @@ impl fmt::Debug for MemoryRegion {
             f,
             "host_addr: {:#x?}-{:#x?}, vm_addr: {:#x?}-{:#x?}, len: {}, writable: {}, payload {:?}",
             self.host_addr,
-            self.host_addr.saturating_add(self.len),
+            self.host_addr.saturating_add(self.len as usize),
             self.vm_addr,
             self.vm_addr_range().end,
             self.len,
@@ -479,7 +479,7 @@ impl<'a> MemoryMapping<'a> {
     pub fn map(&self, access_type: AccessType, vm_addr: u64, len: u64) -> ProgramResult {
         if let Some((_index, region)) = self.find_region(vm_addr) {
             if let Some(host_addr) = region.vm_to_host(access_type, vm_addr, len) {
-                return ProgramResult::Ok(host_addr);
+                return ProgramResult::Ok(host_addr as u64);
             }
         }
         let common = match &self {
@@ -508,7 +508,7 @@ impl<'a> MemoryMapping<'a> {
         };
         if let Some((index, region)) = self.find_region(vm_addr) {
             if let Some(host_addr) = region.vm_to_host(access_type, vm_addr, len) {
-                return ProgramResult::Ok(host_addr);
+                return ProgramResult::Ok(host_addr as u64);
             }
             let mut region = (*region).clone();
             let max_len = self
@@ -521,7 +521,7 @@ impl<'a> MemoryMapping<'a> {
                 if let Err(err) = self.replace_region(index, region) {
                     return ProgramResult::Err(err);
                 }
-                return ProgramResult::Ok(host_addr);
+                return ProgramResult::Ok(host_addr as u64);
             }
         }
         let common = match &self {
@@ -539,7 +539,7 @@ impl<'a> MemoryMapping<'a> {
         debug_assert!(len <= mem::size_of::<u64>() as u64);
         match self.map_with_access_violation_handler(AccessType::Load, vm_addr, len) {
             ProgramResult::Ok(host_addr) => {
-                ProgramResult::Ok(unsafe { ptr::read_unaligned::<T>(host_addr as *const T) }.into())
+                ProgramResult::Ok(unsafe { ptr::read_unaligned::<T>(host_addr as usize as *const T) }.into())
             }
             err => err,
         }
@@ -552,7 +552,7 @@ impl<'a> MemoryMapping<'a> {
         debug_assert!(len <= mem::size_of::<u64>() as u64);
         match self.map_with_access_violation_handler(AccessType::Store, vm_addr, len) {
             ProgramResult::Ok(host_addr) => {
-                unsafe { ptr::write_unaligned(host_addr as *mut T, value) };
+                unsafe { ptr::write_unaligned(host_addr as usize as *mut T, value) };
                 ProgramResult::Ok(host_addr)
             }
             err => err,
@@ -895,19 +895,19 @@ mod test {
         assert!(m.find_region(ebpf::MM_INPUT_START - 1).is_none());
         assert_eq!(
             m.find_region(ebpf::MM_INPUT_START).unwrap().1.host_addr,
-            mem1.as_ptr() as u64
+            mem1.as_ptr() as usize
         );
         assert_eq!(
             m.find_region(ebpf::MM_INPUT_START + 3).unwrap().1.host_addr,
-            mem1.as_ptr() as u64
+            mem1.as_ptr() as usize
         );
         assert_eq!(
             m.find_region(ebpf::MM_INPUT_START + 4).unwrap().1.host_addr,
-            mem2.as_ptr() as u64
+            mem2.as_ptr() as usize
         );
         assert_eq!(
             m.find_region(ebpf::MM_INPUT_START + 7).unwrap().1.host_addr,
-            mem2.as_ptr() as u64
+            mem2.as_ptr() as usize
         );
         assert!(m.find_region(ebpf::MM_INPUT_START + 8).is_some());
     }
@@ -933,23 +933,23 @@ mod test {
         assert!(m.find_region(ebpf::MM_RODATA_START - 1).is_none());
         assert_eq!(
             m.find_region(ebpf::MM_RODATA_START).unwrap().1.host_addr,
-            mem1.as_ptr() as u64
+            mem1.as_ptr() as usize
         );
         assert_eq!(
             m.find_region(ebpf::MM_RODATA_START + 3)
                 .unwrap()
                 .1
                 .host_addr,
-            mem1.as_ptr() as u64
+            mem1.as_ptr() as usize
         );
         assert!(m.find_region(ebpf::MM_RODATA_START + 4).is_some());
         assert_eq!(
             m.find_region(ebpf::MM_STACK_START).unwrap().1.host_addr,
-            mem2.as_ptr() as u64
+            mem2.as_ptr() as usize
         );
         assert_eq!(
             m.find_region(ebpf::MM_STACK_START + 3).unwrap().1.host_addr,
-            mem2.as_ptr() as u64
+            mem2.as_ptr() as usize
         );
         assert!(m.find_region(ebpf::MM_INPUT_START + 4).is_none());
     }
@@ -1245,7 +1245,7 @@ mod test {
                 Box::new(move |region, _, _, _, _| {
                     c.borrow_mut().extend_from_slice(&original);
                     region.writable = true;
-                    region.host_addr = c.borrow().as_slice().as_ptr() as u64;
+                    region.host_addr = c.borrow().as_slice().as_ptr() as usize;
                 }),
             )
             .unwrap();
@@ -1283,7 +1283,7 @@ mod test {
                 Box::new(move |region, _, _, _, _| {
                     c.borrow_mut().extend_from_slice(&original);
                     region.writable = true;
-                    region.host_addr = c.borrow().as_slice().as_ptr() as u64;
+                    region.host_addr = c.borrow().as_slice().as_ptr() as usize;
                 }),
             )
             .unwrap();
@@ -1332,7 +1332,7 @@ mod test {
                     assert_eq!(region.access_violation_handler_payload, Some(42));
                     c.borrow_mut().extend_from_slice(&original1);
                     region.writable = true;
-                    region.host_addr = c.borrow().as_slice().as_ptr() as u64;
+                    region.host_addr = c.borrow().as_slice().as_ptr() as usize;
                 }),
             )
             .unwrap();

@@ -306,7 +306,7 @@ fn test_owned_ro_sections_not_contiguous() {
             sections,
             &elf_bytes,
         ),
-        Ok(Section::Owned(offset, data)) if offset == ebpf::MM_RODATA_START as usize + 10 && data.len() == 30
+        Ok(Section::Owned(offset, data)) if offset == ebpf::MM_RODATA_START + 10 && data.len() == 30
     ));
 }
 
@@ -333,7 +333,7 @@ fn test_owned_ro_sections_with_sh_offset() {
             sections,
             &elf_bytes,
         ),
-        Ok(Section::Owned(offset, data)) if offset == ebpf::MM_RODATA_START as usize + 10 && data.len() == 20
+        Ok(Section::Owned(offset, data)) if offset == ebpf::MM_RODATA_START + 10 && data.len() == 20
     ));
 }
 
@@ -428,7 +428,7 @@ fn test_borrowed_ro_sections_with_constant_sh_offset() {
     assert_eq!(
         ElfExecutable::parse_ro_sections(&config, &SBPFVersion::V3, sections, &elf_bytes),
         Ok(Section::Borrowed(
-            ebpf::MM_RODATA_START as usize + 10,
+            ebpf::MM_RODATA_START + 10,
             100..120
         ))
     );
@@ -612,7 +612,7 @@ fn test_borrowed_ro_sections_disabled() {
             sections,
             &elf_bytes,
         ),
-        Ok(Section::Owned(offset, data)) if offset == ebpf::MM_RODATA_START as usize && data.len() == 20
+        Ok(Section::Owned(offset, data)) if offset == ebpf::MM_RODATA_START && data.len() == 20
     ));
 }
 
@@ -637,7 +637,7 @@ fn test_borrowed_ro_sections() {
         assert_eq!(
             ElfExecutable::parse_ro_sections(&config, &sbpf_version, sections, &elf_bytes),
             Ok(Section::Borrowed(
-                ebpf::MM_RODATA_START as usize + 20,
+                ebpf::MM_RODATA_START + 20,
                 20..50
             ))
         );
